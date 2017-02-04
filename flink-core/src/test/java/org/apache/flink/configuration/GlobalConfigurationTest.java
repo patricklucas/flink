@@ -92,9 +92,23 @@ public class GlobalConfigurationTest extends TestLogger {
 		}
 	}
 
-	@Test(expected = IllegalArgumentException.class)
+	@Test(expected = IllegalConfigurationException.class)
 	public void testFailIfNull() {
 		GlobalConfiguration.loadConfiguration(null);
+	}
+
+	@Test
+	public void testFallbackToConfigOnClasspath() throws IOException {
+		tempFolder.newFile(GlobalConfiguration.FLINK_CONF_FILENAME);
+
+		final String origClasspath = System.getProperty("java.class.path");
+		System.setProperty("java.class.path", tempFolder.getRoot().getAbsolutePath());
+
+		try {
+			GlobalConfiguration.loadConfiguration(null);
+		} finally {
+			System.setProperty("java.class.path", origClasspath);
+		}
 	}
 
 	@Test(expected = IllegalConfigurationException.class)
@@ -112,7 +126,7 @@ public class GlobalConfigurationTest extends TestLogger {
 	public void testInvalidYamlFile() throws IOException {
 		final File confFile = tempFolder.newFile(GlobalConfiguration.FLINK_CONF_FILENAME);
 
-		try (PrintWriter pw = new PrintWriter(confFile);) {
+		try (PrintWriter pw = new PrintWriter(confFile)) {
 			pw.append("invalid");
 		}
 

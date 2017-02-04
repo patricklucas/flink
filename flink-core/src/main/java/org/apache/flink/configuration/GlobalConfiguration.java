@@ -23,6 +23,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.util.StringTokenizer;
 
 import org.apache.flink.annotation.Internal;
 import org.slf4j.Logger;
@@ -80,38 +81,48 @@ public final class GlobalConfiguration {
 	}
 
 	/**
-	 * Loads the configuration files from the specified directory.
+	 * Loads the configuration file from the specified directory. If the directory or configuration file within it are
+	 * missing, but a configuration file is found on the classpath, it will be used instead.
+	 *
+	 * An {@code IllegalConfigurationException} is thrown if no configuration file is found by either method.
 	 * <p>
-	 * YAML files are supported as configuration files.
-	 * 
-	 * @param configDir
-	 *        the directory which contains the configuration files
+	 * The configuration file format is a subset of YAML, supporting basic key/value pairs and comments.
+	 *
+	 * @param configDir the directory which contains the configuration files
 	 */
 	public static Configuration loadConfiguration(final String configDir) {
+		final File yamlConfigFile;
+		final File yamlConfigFileOnClasspath = findFileOnClasspath(FLINK_CONF_FILENAME);
 
-		if (configDir == null) {
-			throw new IllegalArgumentException("Given configuration directory is null, cannot load configuration");
-		}
+		if (configDir != null) {
+			final File confDirFile = new File(configDir);
+			if (!confDirFile.exists() && yamlConfigFileOnClasspath == null) {
+				throw new IllegalConfigurationException(
+					"The given configuration directory name '" + configDir +
+						"' (" + confDirFile.getAbsolutePath() + ") does not describe an existing directory.");
+			}
 
-		final File confDirFile = new File(configDir);
-		if (!(confDirFile.exists())) {
-			throw new IllegalConfigurationException(
-				"The given configuration directory name '" + configDir +
-					"' (" + confDirFile.getAbsolutePath() + ") does not describe an existing directory.");
-		}
+			final File yamlConfigFileInConfDir = new File(confDirFile, FLINK_CONF_FILENAME);
 
-		// get Flink yaml configuration file
-		final File yamlConfigFile = new File(confDirFile, FLINK_CONF_FILENAME);
-
-		if (!yamlConfigFile.exists()) {
-			throw new IllegalConfigurationException(
-				"The Flink config file '" + yamlConfigFile +
-					"' (" + confDirFile.getAbsolutePath() + ") does not exist.");
+			if (yamlConfigFileInConfDir.exists()) {
+				yamlConfigFile = yamlConfigFileInConfDir;
+			} else if (yamlConfigFileOnClasspath != null) {
+				yamlConfigFile = yamlConfigFileOnClasspath;
+			} else {
+				throw new IllegalConfigurationException(
+					"The Flink config file '" + yamlConfigFileInConfDir +
+						"' (" + confDirFile.getAbsolutePath() + ") does not exist.");
+			}
+		} else if (yamlConfigFileOnClasspath != null) {
+			yamlConfigFile = yamlConfigFileOnClasspath;
+		} else {
+			throw new IllegalConfigurationException("The given configuration directory is null, and " +
+				FLINK_CONF_FILENAME + " not found on classpath. Cannot load configuration.");
 		}
 
 		Configuration conf = loadYAMLResource(yamlConfigFile);
 
-		if(dynamicProperties != null) {
+		if (dynamicProperties != null) {
 			conf.addAll(dynamicProperties);
 		}
 
@@ -179,6 +190,31 @@ public final class GlobalConfiguration {
 		}
 
 		return config;
+	}
+
+	/**
+	 * Find a file by name in any directory listed on the classpath.
+	 *
+	 * @param filename the filename to search for
+	 * @return a File or null
+	 */
+	private static File findFileOnClasspath(final String filename) {
+		final String classpath = System.getProperty("java.class.path");
+		final StringTokenizer tokenizer = new StringTokenizer(classpath, File.pathSeparator);
+
+		while (tokenizer.hasMoreTokens()) {
+			final String classpathElement = tokenizer.nextToken();
+			final File classpathFile = new File(classpathElement);
+
+			if (classpathFile.isDirectory()) {
+				final File target = new File(classpathFile, filename);
+				if (target.isFile()) {
+					return target;
+				}
+			}
+		}
+
+		return null;
 	}
 
 }
